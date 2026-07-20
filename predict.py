@@ -33,6 +33,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-root", type=Path, required=True, help="Folder containing images, or one image file.")
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--extensions", nargs="+", default=[".png", ".jpg", ".jpeg", ".tif", ".tiff"])
+    parser.add_argument(
+        "--split",
+        choices=["train", "val", "test"],
+        default=None,
+        help=(
+            "Optional dataset split to predict. When used, image stems under --input-root "
+            "are filtered using <splits-dir>/<split>.txt. Use this with processed images, "
+            "for example --input-root dataset/processed/images --split test."
+        ),
+    )
+    parser.add_argument(
+        "--splits-dir",
+        type=Path,
+        default=Path("dataset/splits"),
+        help="Folder containing train.txt, val.txt, and test.txt.",
+    )
+    parser.add_argument(
+        "--strict-split",
+        action="store_true",
+        help="Raise an error if any ID in the requested split is missing under --input-root.",
+    )
     return parser.parse_args()
 
 
@@ -41,6 +62,62 @@ def list_images(input_root: Path, extensions: list[str]) -> list[Path]:
         return [input_root]
     exts = {e.lower() for e in extensions}
     return sorted([p for p in input_root.rglob("*") if p.is_file() and p.suffix.lower() in exts])
+
+
+def read_split_ids(splits_dir: Path, split: str) -> list[str]:
+    """Read image IDs from a split file.
+
+    Split files contain one processed image ID per line, without file extension.
+    For example, a line named ``sim_0001`` matches ``sim_0001.png``.
+    """
+    split_file = splits_dir / f"{split}.txt"
+    if not split_file.is_file():
+        raise FileNotFoundError(f"Split file not found: {split_file}")
+
+    ids = [line.strip() for line in split_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if not ids:
+        raise ValueError(f"Split file is empty: {split_file}")
+    return ids
+
+
+def filter_images_by_split(
+    image_paths: list[Path],
+    split_ids: list[str],
+    *,
+    strict: bool = False,
+) -> list[Path]:
+    """Keep only images whose filename stem is listed in the requested split.
+
+    The processed dataset stores images as ``<image_id>.png``. The split files
+    store the corresponding ``image_id`` values, so filename stems are used for
+    matching.
+    """
+    images_by_id = {path.stem: path for path in image_paths}
+    selected: list[Path] = []
+    missing: list[str] = []
+
+    for image_id in split_ids:
+        image_path = images_by_id.get(image_id)
+        if image_path is None:
+            missing.append(image_id)
+        else:
+            selected.append(image_path)
+
+    if missing:
+        message = (
+            f"{len(missing)} image ID(s) from the split were not found under --input-root. "
+            f"Examples: {missing[:5]}"
+        )
+        if strict:
+            raise FileNotFoundError(message)
+        print(f"Warning: {message}")
+
+    if not selected:
+        raise FileNotFoundError(
+            "No images matched the requested split. Make sure --input-root points to "
+            "dataset/processed/images, not the raw dataset root."
+        )
+    return selected
 
 
 def predict_semantic(model: torch.nn.Module, image_tensor: torch.Tensor, threshold: float, min_area: int) -> list[dict]:
@@ -77,6 +154,13 @@ def main() -> None:
     images = list_images(args.input_root, args.extensions)
     if not images:
         raise FileNotFoundError(f"No input images found under: {args.input_root}")
+
+    if args.split is not None:
+        split_ids = read_split_ids(args.splits_dir, args.split)
+        images = filter_images_by_split(images, split_ids, strict=args.strict_split)
+        print(f"Predicting {len(images)} image(s) from split '{args.split}'.")
+    else:
+        print(f"Predicting {len(images)} image(s) from --input-root.")
 
     if model_name == "yolo11_seg":
         for image_path in images:

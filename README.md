@@ -258,8 +258,12 @@ python predict.py \
   --config configs/mask_rcnn.yaml \
   --checkpoint outputs/mask_rcnn/best.pt \
   --input-root dataset/processed/images \
-  --output-root outputs/predictions/mask_rcnn
+  --output-root outputs/predictions/mask_rcnn \
+  --split test \
+  --splits-dir dataset/splits
 ```
+
+`--input-root dataset/processed/images` contains all processed images. Add `--split train`, `--split val`, or `--split test` to predict only the image IDs listed in the corresponding split file. Without `--split`, `predict.py` intentionally predicts every image under `--input-root`.
 
 YOLO11-seg prediction uses the same command style:
 
@@ -268,7 +272,9 @@ python predict.py \
   --config configs/yolo11_seg.yaml \
   --checkpoint outputs/yolo11_seg/weights/best.pt \
   --input-root dataset/processed/images \
-  --output-root outputs/predictions/yolo11_seg
+  --output-root outputs/predictions/yolo11_seg \
+  --split test \
+  --splits-dir dataset/splits
 ```
 
 SAM 2 prompted prediction on a processed split:
