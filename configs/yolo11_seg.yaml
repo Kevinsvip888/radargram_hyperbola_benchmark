@@ -1,0 +1,46 @@
+model:
+  name: yolo11_seg
+  task: instance
+  pretrained_model: yolo11n-seg.pt
+  num_classes: 1
+  score_threshold: 0.5
+
+paths:
+  processed_root: dataset/processed
+  splits_dir: dataset/splits
+  output_dir: outputs/yolo11_seg
+  yolo_dataset_dir: dataset/yolo11_seg
+
+input:
+  image_size: [512, 1024]
+  grayscale: false
+
+training:
+  epochs: 100
+  batch_size: 8
+  num_threads: 1
+  num_workers: 4
+  lr: 0.001
+  weight_decay: 0.0005
+  seed: 42
+  patience: 20
+
+postprocessing:
+  min_area: 20
+  threshold: 0.5
+
+augmentation:
+  # Mapped conservatively to Ultralytics train arguments.
+  enabled: true
+  horizontal_flip_p: 0.5
+  shift_limit: 0.03
+  scale_limit: 0.05
+
+yolo:
+  imgsz: 1024
+  overwrite_export: false
+  # Radargrams should usually avoid mosaic/mixup/copy-paste because these can
+  # create physically unrealistic GPR scenes. Enable only for experiments.
+  mosaic: 0.0
+  mixup: 0.0
+  copy_paste: 0.0

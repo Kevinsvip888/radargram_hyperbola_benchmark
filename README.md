@@ -1,13 +1,17 @@
 # Radargram Hyperbola Segmentation Benchmark
 
-A clean PyTorch project for benchmarking semantic and instance segmentation models on GPR radargram images containing hyperbola-shaped rebar responses.
+A clean Python project for benchmarking semantic and instance segmentation models on GPR radargram images containing hyperbola-shaped rebar responses.
 
 The project supports:
 
 - **U-Net** for semantic segmentation.
+- **UNet++** for semantic segmentation.
 - **SegFormer** for semantic segmentation.
+- **DINOv3 + lightweight decoder** for semantic segmentation.
 - **Mask R-CNN** for instance segmentation.
 - **Mask2Former** for instance segmentation.
+- **YOLO11-seg** for instance segmentation through the Ultralytics API.
+- **SAM 2 / SAM 2.1** prompt-based evaluation and fine-tuning data export.
 - Automatic bounding-box generation from object masks.
 - Semantic mask generation from object masks when needed.
 - Prediction export as masks, overlays, JSON, and per-instance pixel-coordinate CSV files.
@@ -46,6 +50,19 @@ pip install -r requirements.txt
 ```
 
 Install PyTorch according to your CUDA version from the official PyTorch installation page if the generic `requirements.txt` command does not match your system.
+
+Optional model dependencies:
+
+```bash
+# YOLO11-seg
+pip install ultralytics
+
+# SegFormer, Mask2Former, and DINOv3 wrappers
+pip install transformers accelerate
+
+# SAM 2 / SAM 2.1: install from the official repository
+# https://github.com/facebookresearch/sam2
+```
 
 ## Step 1: Prepare the dataset
 
@@ -92,17 +109,6 @@ DATASET_ROOT_A_1a2b3c4d__sim_0001
 DATASET_ROOT_B_9e8f7a6b__sim_0001
 ```
 
-If you want a readable custom prefix, use it with one raw root at a time:
-
-```bash
-python scripts/prepare_dataset.py \
-  --raw-root /path/to/DATASET_ROOT_A \
-  --processed-root dataset/processed \
-  --source-prefix synthetic_train_A \
-  --create-semantic-if-missing \
-  --repair-semantic
-```
-
 Use `--write-mode replace` to write a manifest containing only the current input roots. Use `--reset` only when you intentionally want to delete the old processed dataset first.
 
 This creates:
@@ -140,12 +146,40 @@ python scripts/create_splits.py \
 
 ## Step 4: Train models
 
+Semantic models:
+
 ```bash
 python train.py --config configs/unet.yaml
+python train.py --config configs/unetpp.yaml
 python train.py --config configs/segformer.yaml
+python train.py --config configs/dinov3.yaml
+```
+
+Instance models:
+
+```bash
 python train.py --config configs/mask_rcnn.yaml
 python train.py --config configs/mask2former.yaml
+python train.py --config configs/yolo11_seg.yaml
 ```
+
+SAM 2 is different from the other models: it is a promptable foundation model with its own official training/fine-tuning code. This project therefore supports SAM 2 in two practical ways:
+
+```bash
+# Export a COCO-style bundle that can be adapted for the official SAM 2 training code.
+python scripts/export_sam2_finetune_data.py \
+  --processed-root dataset/processed \
+  --splits-dir dataset/splits \
+  --output-root dataset/sam2_finetune \
+  --copy-images
+
+# Evaluate SAM 2 as a box-prompted mask-refinement baseline using GT boxes.
+python scripts/evaluate_sam2_prompted.py \
+  --config configs/sam2.yaml \
+  --split test
+```
+
+Ground-truth prompted SAM 2 is not an automatic detection benchmark. It measures how well SAM 2 refines masks when it is given correct object boxes. For automatic prediction, use boxes from a trained proposal model such as YOLO11-seg or Mask R-CNN, then feed those boxes to SAM 2.
 
 ## Data augmentation
 
@@ -175,7 +209,7 @@ augmentation:
   blur_kernel_size: 3
 ```
 
-The project deliberately avoids vertical flips, arbitrary rotations, strong elastic deformation, and perspective transforms because they can make the GPR geometry physically unrealistic. Bounding boxes for Mask R-CNN are generated after augmentation, so boxes always match the transformed object masks.
+The project deliberately avoids vertical flips, arbitrary rotations, strong elastic deformation, and perspective transforms because they can make the GPR geometry physically unrealistic. Bounding boxes for instance models are generated after augmentation, so boxes always match the transformed object masks.
 
 You can quickly inspect augmentation quality with:
 
@@ -186,12 +220,35 @@ python scripts/preview_augmentations.py \
   --num-samples 8
 ```
 
+## YOLO11-seg dataset export
+
+`train.py --config configs/yolo11_seg.yaml` automatically exports the processed dataset to Ultralytics YOLO segmentation format before training. You can also run the export manually:
+
+```bash
+python scripts/export_yolo11_seg.py \
+  --processed-root dataset/processed \
+  --splits-dir dataset/splits \
+  --output-root dataset/yolo11_seg
+```
+
+The export converts each object mask into normalized polygon labels and creates:
+
+```text
+dataset/yolo11_seg/
+  data.yaml
+  images/train, images/val, images/test
+  labels/train, labels/val, labels/test
+```
 
 ## Step 5: Evaluate
 
 ```bash
 python evaluate.py --config configs/unet.yaml --checkpoint outputs/unet/best.pt --split test
+python evaluate.py --config configs/unetpp.yaml --checkpoint outputs/unetpp/best.pt --split test
+python evaluate.py --config configs/dinov3.yaml --checkpoint outputs/dinov3/best.pt --split test
 python evaluate.py --config configs/mask_rcnn.yaml --checkpoint outputs/mask_rcnn/best.pt --split test
+python evaluate.py --config configs/yolo11_seg.yaml --checkpoint outputs/yolo11_seg/weights/best.pt --split test
+python scripts/evaluate_sam2_prompted.py --config configs/sam2.yaml --split test
 ```
 
 ## Step 6: Predict and export masks/pixel coordinates
@@ -202,6 +259,25 @@ python predict.py \
   --checkpoint outputs/mask_rcnn/best.pt \
   --input-root dataset/processed/images \
   --output-root outputs/predictions/mask_rcnn
+```
+
+YOLO11-seg prediction uses the same command style:
+
+```bash
+python predict.py \
+  --config configs/yolo11_seg.yaml \
+  --checkpoint outputs/yolo11_seg/weights/best.pt \
+  --input-root dataset/processed/images \
+  --output-root outputs/predictions/yolo11_seg
+```
+
+SAM 2 prompted prediction on a processed split:
+
+```bash
+python scripts/predict_sam2_prompted.py \
+  --config configs/sam2.yaml \
+  --split test \
+  --output-root outputs/predictions/sam2_prompted
 ```
 
 For each image, prediction saves:
@@ -219,28 +295,9 @@ outputs/predictions/MODEL_NAME/sim_0001/
   prediction.json
 ```
 
-Each pixel-coordinate CSV contains:
+## Model notes
 
-```text
-x,y
-120,45
-121,45
-122,45
-```
-
-## Notes on model outputs
-
-- **U-Net and SegFormer** predict one merged hyperbola mask. Individual hyperbola instances are extracted by connected components.
-- **Mask R-CNN and Mask2Former** predict one mask per hyperbola directly.
-- Mask R-CNN training requires boxes, but boxes are generated automatically from object masks.
-
-## Recommended first benchmark
-
-Start with:
-
-```bash
-python train.py --config configs/unet.yaml
-python train.py --config configs/mask_rcnn.yaml
-```
-
-Then add SegFormer and Mask2Former after the dataset and baseline training are verified.
+- **U-Net, UNet++, SegFormer, and DINOv3** produce one semantic mask for all hyperbolas. Individual hyperbola masks are extracted by connected components.
+- **Mask R-CNN, Mask2Former, and YOLO11-seg** directly predict instance masks.
+- **SAM 2** is included as a prompt-based mask-refinement/foundation-model baseline and a fine-tuning data export route, not as a normal `train.py` model.
+- For final per-hyperbola pixel coordinates, prefer instance models first. Use semantic models as useful baselines.

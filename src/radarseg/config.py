@@ -34,7 +34,7 @@ def validate_config(cfg: Mapping[str, Any]) -> None:
 
     model_name = cfg["model"].get("name")
     task = cfg["model"].get("task")
-    if model_name not in {"unet", "segformer", "mask_rcnn", "mask2former"}:
+    if model_name not in {"unet", "unetpp", "segformer", "dinov3", "mask_rcnn", "mask2former", "yolo11_seg", "sam2"}:
         raise ConfigError(f"Unsupported model.name: {model_name}")
     if task not in {"semantic", "instance"}:
         raise ConfigError(f"Unsupported model.task: {task}")

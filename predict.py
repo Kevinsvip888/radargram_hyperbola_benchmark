@@ -12,20 +12,18 @@ if SRC_DIR.is_dir() and str(SRC_DIR) not in sys.path:
 
 import numpy as np
 import torch
-from PIL import Image
 
 from radarseg.config import load_config
 from radarseg.data.dataset import load_raw_image_for_prediction
+from radarseg.external.yolo11 import predict_yolo11_on_image
 from radarseg.models.factory import build_model
 from radarseg.models.mask_rcnn import mask_rcnn_predictions_to_instances
 from radarseg.models.mask2former import mask2former_outputs_to_instances
 from radarseg.postprocessing.semantic_to_instances import split_semantic_prediction
 from radarseg.utils.checkpoint import load_checkpoint
-from radarseg.utils.coordinates import save_pixel_coordinates_csv
-from radarseg.utils.io import ensure_dir, save_json
-from radarseg.utils.masks import masks_to_boxes, save_binary_mask, union_masks
+from radarseg.utils.masks import masks_to_boxes
+from radarseg.utils.prediction_io import save_prediction_outputs
 from radarseg.utils.seed import get_device
-from radarseg.utils.visualization import overlay_masks_on_image
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,41 +59,6 @@ def predict_semantic(model: torch.nn.Module, image_tensor: torch.Tensor, thresho
     return instances
 
 
-def save_prediction_outputs(image_path: Path, instances: list[dict], output_dir: Path) -> None:
-    ensure_dir(output_dir)
-    objects_dir = ensure_dir(output_dir / "objects")
-    coords_dir = ensure_dir(output_dir / "coordinates")
-
-    masks = [item["mask"] for item in instances]
-    if masks:
-        mask_all = union_masks(masks, shape=masks[0].shape)
-    else:
-        image = Image.open(image_path)
-        mask_all = np.zeros((image.height, image.width), dtype=np.uint8)
-
-    save_binary_mask(mask_all, output_dir / "mask_all_pred.png")
-    overlay = overlay_masks_on_image(Image.open(image_path).convert("RGB").resize((mask_all.shape[1], mask_all.shape[0])), masks)
-    overlay.save(output_dir / "overlay.png")
-
-    payload = {"image_id": image_path.stem, "instances": []}
-    for idx, item in enumerate(instances, start=1):
-        mask_name = f"object_{idx:03d}_pred.png"
-        coord_name = f"object_{idx:03d}_pixels.csv"
-        mask_path = objects_dir / mask_name
-        coord_path = coords_dir / coord_name
-        save_binary_mask(item["mask"], mask_path)
-        num_pixels = save_pixel_coordinates_csv(item["mask"], coord_path)
-        payload["instances"].append({
-            "instance_id": idx,
-            "score": float(item.get("score", 1.0)),
-            "bbox": [float(v) for v in item.get("bbox", [0, 0, 0, 0])],
-            "num_pixels": num_pixels,
-            "mask_path": str(Path("objects") / mask_name),
-            "pixel_coordinates_path": str(Path("coordinates") / coord_name),
-        })
-    save_json(payload, output_dir / "prediction.json")
-
-
 def main() -> None:
     args = parse_args()
     cfg = load_config(args.config)
@@ -103,9 +66,6 @@ def main() -> None:
     if num_threads is not None:
         torch.set_num_threads(int(num_threads))
     device = get_device()
-    model = build_model(cfg).to(device)
-    load_checkpoint(args.checkpoint, model, map_location=device)
-    model.eval()
 
     image_size = cfg["input"].get("image_size")
     grayscale = bool(cfg["input"].get("grayscale", False))
@@ -117,6 +77,30 @@ def main() -> None:
     images = list_images(args.input_root, args.extensions)
     if not images:
         raise FileNotFoundError(f"No input images found under: {args.input_root}")
+
+    if model_name == "yolo11_seg":
+        for image_path in images:
+            instances = predict_yolo11_on_image(
+                args.checkpoint,
+                image_path,
+                threshold=threshold,
+                min_area=min_area,
+                imgsz=cfg.get("yolo", {}).get("imgsz"),
+            )
+            out_dir = args.output_root / image_path.stem
+            save_prediction_outputs(image_path, instances, out_dir)
+            print(f"Saved YOLO11-seg prediction for {image_path.name} -> {out_dir}")
+        return
+
+    if model_name == "sam2":
+        raise NotImplementedError(
+            "Use scripts/predict_sam2_prompted.py for SAM 2 because SAM 2 requires prompt boxes. "
+            "The generic predict.py command is reserved for models that directly produce masks from images."
+        )
+
+    model = build_model(cfg).to(device)
+    load_checkpoint(args.checkpoint, model, map_location=device)
+    model.eval()
 
     with torch.no_grad():
         for image_path in images:

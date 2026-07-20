@@ -1,0 +1,37 @@
+model:
+  name: sam2
+  task: instance
+  # Option A: load from Hugging Face through the official SAM 2 package.
+  pretrained_model_name: facebook/sam2-hiera-large
+  # Option B: comment pretrained_model_name and use local official SAM 2 files.
+  # model_cfg: configs/sam2.1/sam2.1_hiera_l.yaml
+  # checkpoint: checkpoints/sam2.1_hiera_large.pt
+
+paths:
+  processed_root: dataset/processed
+  splits_dir: dataset/splits
+  output_dir: outputs/sam2
+
+input:
+  image_size: [512, 1024]
+  grayscale: false
+
+training:
+  # SAM 2 fine-tuning uses the official facebookresearch/sam2 training code.
+  # This project exports SAM 2 fine-tuning data and supports prompted evaluation.
+  epochs: 0
+  batch_size: 1
+  num_threads: 1
+  num_workers: 0
+  lr: 0.00001
+  weight_decay: 0.0
+  seed: 42
+  patience: 0
+
+postprocessing:
+  min_area: 20
+  threshold: 0.5
+
+sam2:
+  # Expands prompt boxes before prediction. 0.05 means 5% of box width/height.
+  box_expansion: 0.05

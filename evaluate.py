@@ -17,6 +17,7 @@ from radarseg.config import load_config
 from radarseg.data.collate import detection_collate, mask2former_collate, semantic_collate
 from radarseg.data.dataset import RadargramInstanceDataset, RadargramSemanticDataset
 from radarseg.engine.evaluator import evaluate_instance_model, evaluate_semantic_model
+from radarseg.external.yolo11 import evaluate_yolo11_seg
 from radarseg.models.factory import build_model
 from radarseg.utils.checkpoint import load_checkpoint
 from radarseg.utils.io import save_json
@@ -49,11 +50,33 @@ def main() -> None:
     task = cfg["model"]["task"]
     model_name = cfg["model"]["name"]
 
-    model = build_model(cfg).to(device)
-    load_checkpoint(args.checkpoint, model, map_location=device)
-
     threshold = float(cfg["postprocessing"].get("threshold", cfg["model"].get("score_threshold", 0.5)))
     min_area = int(cfg["postprocessing"].get("min_area", 20))
+
+    if model_name == "yolo11_seg":
+        metrics = evaluate_yolo11_seg(
+            args.checkpoint,
+            processed_root,
+            splits_dir,
+            args.split,
+            threshold=threshold,
+            min_area=min_area,
+            imgsz=cfg.get("yolo", {}).get("imgsz"),
+        )
+        print(metrics)
+        output = args.output or Path(cfg["paths"]["output_dir"]) / f"metrics_{args.split}.json"
+        save_json(metrics, output)
+        print(f"Saved metrics to: {output}")
+        return
+
+    if model_name == "sam2":
+        raise NotImplementedError(
+            "Use scripts/evaluate_sam2_prompted.py for SAM 2. SAM 2 requires prompt boxes, "
+            "so it is evaluated through the prompted SAM 2 utility rather than the generic checkpoint loader."
+        )
+
+    model = build_model(cfg).to(device)
+    load_checkpoint(args.checkpoint, model, map_location=device)
 
     if task == "semantic":
         ds = RadargramSemanticDataset(processed_root, splits_dir, args.split, image_size=image_size, grayscale=grayscale)

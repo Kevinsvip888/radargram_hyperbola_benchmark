@@ -5,6 +5,7 @@ from typing import Any, Mapping
 from torch import nn
 
 from .unet import UNet
+from .unetpp import UNetPlusPlus
 
 
 def build_model(cfg: Mapping[str, Any]) -> nn.Module:
@@ -16,6 +17,25 @@ def build_model(cfg: Mapping[str, Any]) -> nn.Module:
             in_channels=int(model_cfg.get("in_channels", 3)),
             out_channels=int(model_cfg.get("num_classes", 1)),
             base_channels=int(model_cfg.get("base_channels", 32)),
+        )
+
+    if name == "unetpp":
+        return UNetPlusPlus(
+            in_channels=int(model_cfg.get("in_channels", 3)),
+            out_channels=int(model_cfg.get("num_classes", 1)),
+            base_channels=int(model_cfg.get("base_channels", 32)),
+            deep_supervision=bool(model_cfg.get("deep_supervision", False)),
+        )
+
+    if name == "dinov3":
+        from .dinov3_segmenter import DINOv3SemanticSegmenter
+
+        return DINOv3SemanticSegmenter(
+            pretrained_model_name=str(model_cfg.get("pretrained_model_name", "facebook/dinov3-vits16-pretrain-lvd1689m")),
+            out_channels=int(model_cfg.get("num_classes", 1)),
+            decoder_channels=int(model_cfg.get("decoder_channels", 256)),
+            freeze_backbone=bool(model_cfg.get("freeze_backbone", True)),
+            trust_remote_code=bool(model_cfg.get("trust_remote_code", True)),
         )
 
     if name == "segformer":

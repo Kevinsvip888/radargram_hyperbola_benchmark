@@ -12,6 +12,12 @@ scipy>=1.10
 torch>=2.1
 torchvision>=0.16
 
-# Optional, required for SegFormer and Mask2Former.
+# Optional, required for SegFormer, Mask2Former, and DINOv3 wrappers.
 transformers>=4.42
 accelerate>=0.30
+
+# Optional, required only for YOLO11-seg training/evaluation/prediction.
+ultralytics>=8.3
+
+# Optional, install the official SAM 2 package separately from:
+# https://github.com/facebookresearch/sam2

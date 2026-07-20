@@ -18,6 +18,7 @@ from radarseg.data.collate import detection_collate, mask2former_collate, semant
 from radarseg.data.dataset import RadargramInstanceDataset, RadargramSemanticDataset
 from radarseg.data.transforms import AugmentationConfig
 from radarseg.engine.trainer import train_mask2former, train_mask_rcnn, train_semantic
+from radarseg.external.yolo11 import train_yolo11_seg
 from radarseg.models.factory import build_model
 from radarseg.utils.seed import get_device, make_torch_generator, seed_worker, set_seed
 
@@ -73,6 +74,20 @@ def main() -> None:
 
     model_name = cfg["model"]["name"]
     task = cfg["model"]["task"]
+
+    if model_name == "yolo11_seg":
+        result = train_yolo11_seg(cfg)
+        print("YOLO11-seg training complete:", result)
+        return
+
+    if model_name == "sam2":
+        raise NotImplementedError(
+            "SAM 2 uses the official SAM 2 training/fine-tuning code rather than the generic PyTorch loop. "
+            "Use scripts/export_sam2_finetune_data.py to create COCO-style train/val/test files, then fine-tune "
+            "inside the official facebookresearch/sam2 training environment. For prompt-based evaluation inside this "
+            "project, use scripts/evaluate_sam2_prompted.py or scripts/predict_sam2_prompted.py."
+        )
+
     train_augmentation = AugmentationConfig.from_mapping(cfg.get("augmentation"))
     val_augmentation = None
 

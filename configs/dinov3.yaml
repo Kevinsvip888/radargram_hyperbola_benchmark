@@ -1,0 +1,57 @@
+model:
+  name: dinov3
+  task: semantic
+  num_classes: 1
+  # Replace with the DINOv3 checkpoint you can access locally or from Hugging Face.
+  # Keep trust_remote_code true because foundation-model repos often use custom code.
+  pretrained_model_name: facebook/dinov3-vits16-pretrain-lvd1689m
+  trust_remote_code: true
+  freeze_backbone: true
+  decoder_channels: 256
+
+paths:
+  processed_root: dataset/processed
+  splits_dir: dataset/splits
+  output_dir: outputs/dinov3
+
+input:
+  # Use dimensions divisible by the DINOv3 patch size, commonly 16.
+  image_size: [512, 1024]
+  grayscale: false
+
+training:
+  epochs: 80
+  batch_size: 2
+  num_threads: 1
+  num_workers: 4
+  lr: 0.0001
+  weight_decay: 0.00001
+  threshold: 0.5
+  seed: 42
+  amp: true
+  patience: 20
+
+loss:
+  name: bce_dice
+  dice_weight: 1.0
+  bce_weight: 1.0
+
+postprocessing:
+  min_area: 20
+  threshold: 0.5
+
+augmentation:
+  enabled: true
+  horizontal_flip_p: 0.5
+  shift_scale_p: 0.3
+  shift_limit: 0.02
+  scale_limit: 0.04
+  brightness_contrast_p: 0.4
+  brightness_limit: 0.10
+  contrast_limit: 0.10
+  gamma_p: 0.25
+  gamma_limit: [0.92, 1.08]
+  gaussian_noise_p: 0.25
+  noise_std_limit: [0.005, 0.025]
+  gaussian_blur_p: 0.10
+  blur_kernel_size: 3
