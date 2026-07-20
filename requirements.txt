@@ -1,0 +1,17 @@
+numpy>=1.24
+pandas>=2.0
+Pillow>=10.0
+opencv-python>=4.8
+PyYAML>=6.0
+tqdm>=4.66
+matplotlib>=3.7
+scikit-learn>=1.3
+scipy>=1.10
+
+# Install torch/torchvision according to your CUDA version if needed.
+torch>=2.1
+torchvision>=0.16
+
+# Optional, required for SegFormer and Mask2Former.
+transformers>=4.42
+accelerate>=0.30

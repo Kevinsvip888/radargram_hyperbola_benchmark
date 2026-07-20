@@ -1,0 +1,53 @@
+model:
+  name: mask2former
+  task: instance
+  pretrained_model_name: facebook/mask2former-swin-tiny-coco-instance
+  num_classes: 2
+  score_threshold: 0.5
+
+paths:
+  processed_root: dataset/processed
+  splits_dir: dataset/splits
+  output_dir: outputs/mask2former
+
+input:
+  image_size: [512, 1024]
+  grayscale: false
+
+training:
+  epochs: 100
+  batch_size: 1
+  num_threads: 1
+  num_workers: 2
+  lr: 0.00005
+  weight_decay: 0.00005
+  seed: 42
+  amp: true
+  patience: 20
+
+postprocessing:
+  min_area: 20
+  threshold: 0.5
+
+augmentation:
+  # Applied only to the training split. Validation, testing, and prediction are
+  # deterministic and use no augmentation.
+  enabled: true
+
+  # Geometric augmentations are applied to image + all masks together.
+  horizontal_flip_p: 0.5
+  shift_scale_p: 0.4
+  shift_limit: 0.03
+  scale_limit: 0.05
+
+  # Intensity augmentations are applied only to the radargram image.
+  brightness_contrast_p: 0.5
+  brightness_limit: 0.12
+  contrast_limit: 0.12
+  gamma_p: 0.3
+  gamma_limit: [0.90, 1.10]
+  gaussian_noise_p: 0.3
+  noise_std_limit: [0.005, 0.030]
+  gaussian_blur_p: 0.15
+  blur_kernel_size: 3
+

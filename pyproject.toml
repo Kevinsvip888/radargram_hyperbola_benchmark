@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "radargram-hyperbola-benchmark"
+version = "0.1.0"
+description = "Semantic and instance segmentation benchmarking for GPR radargram hyperbola masks."
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
