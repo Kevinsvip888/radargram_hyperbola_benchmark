@@ -265,6 +265,8 @@ python predict.py \
 
 `--input-root dataset/processed/images` contains all processed images. Add `--split train`, `--split val`, or `--split test` to predict only the image IDs listed in the corresponding split file. Without `--split`, `predict.py` intentionally predicts every image under `--input-root`.
 
+For Mask R-CNN, `evaluate.py` and `predict.py` automatically disable COCO-pretrained weight loading before loading your supplied `--checkpoint`. This prevents unnecessary internet downloads during evaluation and prediction.
+
 YOLO11-seg prediction uses the same command style:
 
 ```bash

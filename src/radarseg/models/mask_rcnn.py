@@ -24,16 +24,25 @@ def build_mask_rcnn(
 
     if pretrained:
         try:
-            weights = torchvision.models.detection.MaskRCNN_ResNet50_FPN_Weights.DEFAULT
-            model = torchvision.models.detection.maskrcnn_resnet50_fpn(
-                weights=weights,
-                trainable_backbone_layers=trainable_backbone_layers,
-            )
-        except Exception:
-            model = torchvision.models.detection.maskrcnn_resnet50_fpn(
-                pretrained=True,
-                trainable_backbone_layers=trainable_backbone_layers,
-            )
+            weights_enum = getattr(torchvision.models.detection, "MaskRCNN_ResNet50_FPN_Weights", None)
+            if weights_enum is not None:
+                model = torchvision.models.detection.maskrcnn_resnet50_fpn(
+                    weights=weights_enum.DEFAULT,
+                    trainable_backbone_layers=trainable_backbone_layers,
+                )
+            else:  # Compatibility with older torchvision versions.
+                model = torchvision.models.detection.maskrcnn_resnet50_fpn(
+                    pretrained=True,
+                    trainable_backbone_layers=trainable_backbone_layers,
+                )
+        except Exception as exc:
+            raise RuntimeError(
+                "Could not load Mask R-CNN pretrained COCO weights. "
+                "If you are offline or do not need pretrained weights, set "
+                "model.pretrained: false in configs/mask_rcnn.yaml. "
+                "During evaluate.py and predict.py this project automatically disables "
+                "pretrained weights because --checkpoint already provides trained weights."
+            ) from exc
     else:
         try:
             model = torchvision.models.detection.maskrcnn_resnet50_fpn(

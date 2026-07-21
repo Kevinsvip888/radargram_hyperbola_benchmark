@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 from pathlib import Path
 import sys
 
@@ -25,6 +26,20 @@ from radarseg.utils.masks import masks_to_boxes
 from radarseg.utils.prediction_io import save_prediction_outputs
 from radarseg.utils.seed import get_device
 
+
+
+def make_checkpoint_loading_config(cfg: dict) -> dict:
+    """Return a config suitable for loading an already trained checkpoint.
+
+    Torchvision Mask R-CNN does not need COCO pretrained weights during
+    evaluation or prediction. Disabling them here avoids unnecessary downloads
+    when the user already supplies --checkpoint.
+    """
+    cfg = deepcopy(cfg)
+    model_cfg = cfg.get("model", {})
+    if model_cfg.get("name") == "mask_rcnn":
+        model_cfg["pretrained"] = False
+    return cfg
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Predict hyperbola masks and export pixel coordinates.")
@@ -182,7 +197,8 @@ def main() -> None:
             "The generic predict.py command is reserved for models that directly produce masks from images."
         )
 
-    model = build_model(cfg).to(device)
+    checkpoint_cfg = make_checkpoint_loading_config(cfg)
+    model = build_model(checkpoint_cfg).to(device)
     load_checkpoint(args.checkpoint, model, map_location=device)
     model.eval()
 
