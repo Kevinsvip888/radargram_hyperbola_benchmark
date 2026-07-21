@@ -262,6 +262,15 @@ python predict.py \
   --split test \
   --splits-dir dataset/splits
 ```
+predict validation images only:
+```bash
+python predict.py \
+  --config configs/mask_rcnn.yaml \
+  --checkpoint outputs/mask_rcnn/best.pt \
+  --input-root dataset/processed/images \
+  --output-root outputs/predictions/mask_rcnn_val \
+  --split val
+```
 
 `--input-root dataset/processed/images` contains all processed images. Add `--split train`, `--split val`, or `--split test` to predict only the image IDs listed in the corresponding split file. Without `--split`, `predict.py` intentionally predicts every image under `--input-root`.
 
