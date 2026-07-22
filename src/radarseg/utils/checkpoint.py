@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib.resources import path
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,10 @@ def load_checkpoint(path: str | Path, model: torch.nn.Module, map_location: str 
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(f"Checkpoint not found: {path}")
-    checkpoint = torch.load(path, map_location=map_location)
+    try:
+        checkpoint = torch.load(path, map_location=map_location, weights_only=True)
+    except TypeError:
+        checkpoint = torch.load(path, map_location=map_location)
     state = checkpoint.get("model_state", checkpoint)
     model.load_state_dict(state, strict=False)
     return checkpoint
