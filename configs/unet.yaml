@@ -15,7 +15,7 @@ input:
   # project versions. Change to letterbox to preserve aspect ratio by
   # padding instead of stretching.
   image_size: [512, 1024]
-  resize_mode: resize
+  resize_mode: letterbox
   pad_value: 0
   allow_upscale: false
   grayscale: false
