@@ -22,13 +22,15 @@ class ResizeConfig:
 
     ``mode='resize'`` stretches every image/mask directly to ``image_size``.
     ``mode='letterbox'`` preserves the original aspect ratio and pads the
-    remaining area to ``image_size``.
+    remaining area to ``image_size``. When ``allow_upscale=False``, smaller
+    images are padded without enlargement; only downscaling is allowed.
     """
 
     height: int
     width: int
     mode: str = "resize"
     pad_value: int = 0
+    allow_upscale: bool = True
 
     @classmethod
     def from_sequence(cls, value: Sequence[int] | None) -> "ResizeConfig | None":
@@ -37,7 +39,7 @@ class ResizeConfig:
             return None
         if len(value) != 2:
             raise ValueError(f"image_size must contain [height, width], got: {value}")
-        return cls(height=int(value[0]), width=int(value[1]), mode="resize", pad_value=0)
+        return cls(height=int(value[0]), width=int(value[1]), mode="resize", pad_value=0, allow_upscale=True)
 
     @classmethod
     def from_settings(
@@ -45,13 +47,20 @@ class ResizeConfig:
         image_size: Sequence[int] | None,
         resize_mode: str = "resize",
         pad_value: int = 0,
+        allow_upscale: bool = True,
     ) -> "ResizeConfig | None":
         """Create preprocessing settings from config values."""
         if image_size is None:
             return None
         if len(image_size) != 2:
             raise ValueError(f"image_size must contain [height, width], got: {image_size}")
-        cfg = cls(height=int(image_size[0]), width=int(image_size[1]), mode=str(resize_mode), pad_value=int(pad_value))
+        cfg = cls(
+            height=int(image_size[0]),
+            width=int(image_size[1]),
+            mode=str(resize_mode),
+            pad_value=int(pad_value),
+            allow_upscale=bool(allow_upscale),
+        )
         cfg.validate()
         return cfg
 
@@ -87,6 +96,7 @@ class SpatialTransformMeta:
     pad_right: int = 0
     scale_x: float = 1.0
     scale_y: float = 1.0
+    allow_upscale: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -218,6 +228,7 @@ def apply_spatial_preprocessing(
             processed_width=original_width,
             resized_height=original_height,
             resized_width=original_width,
+            allow_upscale=True,
         )
         return image, masks, meta
 
@@ -235,11 +246,16 @@ def apply_spatial_preprocessing(
             resized_width=resize.width,
             scale_x=resize.width / max(original_width, 1),
             scale_y=resize.height / max(original_height, 1),
+            allow_upscale=resize.allow_upscale,
         )
         return out_image, out_masks, meta
 
     # Letterbox: preserve aspect ratio and pad to the requested model size.
+    # When allow_upscale=False, smaller images are not enlarged; they are
+    # centered on the target canvas with padding only.
     scale = min(resize.width / max(original_width, 1), resize.height / max(original_height, 1))
+    if not resize.allow_upscale:
+        scale = min(scale, 1.0)
     resized_width = max(1, min(resize.width, int(round(original_width * scale))))
     resized_height = max(1, min(resize.height, int(round(original_height * scale))))
     pad_left = (resize.width - resized_width) // 2
@@ -272,6 +288,7 @@ def apply_spatial_preprocessing(
         pad_right=pad_right,
         scale_x=resized_width / max(original_width, 1),
         scale_y=resized_height / max(original_height, 1),
+        allow_upscale=resize.allow_upscale,
     )
     return padded_image, out_masks, meta
 

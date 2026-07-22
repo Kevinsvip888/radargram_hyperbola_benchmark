@@ -162,6 +162,7 @@ def main() -> None:
     image_size = cfg["input"].get("image_size")
     resize_mode = cfg["input"].get("resize_mode", "resize")
     pad_value = int(cfg["input"].get("pad_value", 0))
+    allow_upscale = bool(cfg["input"].get("allow_upscale", True))
     grayscale = bool(cfg["input"].get("grayscale", False))
     model_name = cfg["model"]["name"]
     task = cfg["model"]["task"]
@@ -212,6 +213,7 @@ def main() -> None:
                 grayscale=grayscale,
                 resize_mode=resize_mode,
                 pad_value=pad_value,
+                allow_upscale=allow_upscale,
                 return_meta=True,
             )
             image_tensor, transform_meta = loaded

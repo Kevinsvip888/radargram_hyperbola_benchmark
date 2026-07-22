@@ -61,6 +61,7 @@ def main() -> None:
         augmentation=augmentation,
         resize_mode=cfg["input"].get("resize_mode", "resize"),
         pad_value=int(cfg["input"].get("pad_value", 0)),
+        allow_upscale=bool(cfg["input"].get("allow_upscale", True)),
     )
 
     output_dir = ensure_dir(args.output_dir)

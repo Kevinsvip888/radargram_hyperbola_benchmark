@@ -61,6 +61,7 @@ def main() -> None:
     image_size = cfg["input"].get("image_size")
     resize_mode = cfg["input"].get("resize_mode", "resize")
     pad_value = int(cfg["input"].get("pad_value", 0))
+    allow_upscale = bool(cfg["input"].get("allow_upscale", True))
     grayscale = bool(cfg["input"].get("grayscale", False))
     batch_size = int(cfg["training"].get("batch_size", 1))
     num_workers = int(cfg["training"].get("num_workers", 4))
@@ -105,6 +106,7 @@ def main() -> None:
             grayscale=grayscale,
             resize_mode=resize_mode,
             pad_value=pad_value,
+            allow_upscale=allow_upscale,
         )
         loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=semantic_collate)
         metrics = evaluate_semantic_model(model, loader, device, threshold=threshold, min_area=min_area, model_name=model_name)
@@ -117,6 +119,7 @@ def main() -> None:
             grayscale=grayscale,
             resize_mode=resize_mode,
             pad_value=pad_value,
+            allow_upscale=allow_upscale,
         )
         collate_fn = mask2former_collate if model_name == "mask2former" else detection_collate
         loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_fn)

@@ -154,12 +154,15 @@ input:
   image_size: [512, 1024]   # [height, width]
   resize_mode: resize       # resize or letterbox
   pad_value: 0
+  allow_upscale: true       # used by letterbox mode
   grayscale: false
 ```
 
 Use `resize_mode: resize` when you want the old behavior: each image and mask is directly stretched to `image_size`. This preserves compatibility with checkpoints already trained using earlier project versions.
 
 Use `resize_mode: letterbox` when your raw radargrams have different aspect ratios and you want to preserve the original hyperbola geometry. In this mode, the image and all masks are scaled with the same factor and padded to the requested model size. Mask padding is always background; image padding uses `pad_value`.
+
+Set `allow_upscale: false` when you do **not** want smaller images to be enlarged. Then any image that is already smaller than the target size is kept at its original size and centered on the canvas with padding only. Larger images are still downscaled as needed.
 
 Example:
 
@@ -168,6 +171,7 @@ input:
   image_size: [512, 1024]
   resize_mode: letterbox
   pad_value: 0
+  allow_upscale: false
   grayscale: false
 ```
 
@@ -302,6 +306,7 @@ python predict.py \
   --split test \
   --splits-dir dataset/splits
 ```
+
 predict validation images only:
 ```bash
 python predict.py \
@@ -310,9 +315,7 @@ python predict.py \
   --input-root dataset/processed/images \
   --output-root outputs/predictions/mask_rcnn_val \
   --split val
-```
-
-
+  
 `--input-root dataset/processed/images` contains all processed images. Add `--split train`, `--split val`, or `--split test` to predict only the image IDs listed in the corresponding split file. Without `--split`, `predict.py` intentionally predicts every image under `--input-root`.
 
 For Mask R-CNN, `evaluate.py` and `predict.py` automatically disable COCO-pretrained weight loading before loading your supplied `--checkpoint`. This prevents unnecessary internet downloads during evaluation and prediction.

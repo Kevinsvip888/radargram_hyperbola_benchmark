@@ -101,10 +101,16 @@ class RadargramSemanticDataset(Dataset):
         augmentation: AugmentationConfig | None = None,
         resize_mode: str = "resize",
         pad_value: int = 0,
+        allow_upscale: bool = True,
     ) -> None:
         self.processed_root = Path(processed_root)
         self.split = split
-        self.resize = build_resize_config(image_size, resize_mode=resize_mode, pad_value=pad_value)
+        self.resize = build_resize_config(
+            image_size,
+            resize_mode=resize_mode,
+            pad_value=pad_value,
+            allow_upscale=allow_upscale,
+        )
         self.grayscale = grayscale
         self.augmentation = augmentation
         df = filter_manifest_by_split(load_manifest(self.processed_root), splits_dir, split)
@@ -146,10 +152,16 @@ class RadargramInstanceDataset(Dataset):
         augmentation: AugmentationConfig | None = None,
         resize_mode: str = "resize",
         pad_value: int = 0,
+        allow_upscale: bool = True,
     ) -> None:
         self.processed_root = Path(processed_root)
         self.split = split
-        self.resize = build_resize_config(image_size, resize_mode=resize_mode, pad_value=pad_value)
+        self.resize = build_resize_config(
+            image_size,
+            resize_mode=resize_mode,
+            pad_value=pad_value,
+            allow_upscale=allow_upscale,
+        )
         self.grayscale = grayscale
         self.augmentation = augmentation
         df = filter_manifest_by_split(load_manifest(self.processed_root), splits_dir, split)
@@ -212,6 +224,7 @@ def load_raw_image_for_prediction(
     grayscale: bool = False,
     resize_mode: str = "resize",
     pad_value: int = 0,
+    allow_upscale: bool = True,
     return_meta: bool = False,
 ) -> torch.Tensor | tuple[torch.Tensor, SpatialTransformMeta]:
     """Load one image for inference.
@@ -220,7 +233,12 @@ def load_raw_image_for_prediction(
     ``save_prediction_outputs`` so masks and CSV coordinates are written in the
     original image coordinate system.
     """
-    resize = build_resize_config(image_size, resize_mode=resize_mode, pad_value=pad_value)
+    resize = build_resize_config(
+        image_size,
+        resize_mode=resize_mode,
+        pad_value=pad_value,
+        allow_upscale=allow_upscale,
+    )
     image = Image.open(path).convert("L" if grayscale else "RGB")
     image, _, meta = apply_spatial_preprocessing(image, [], resize)
     tensor = image_to_tensor(image, grayscale=grayscale)
