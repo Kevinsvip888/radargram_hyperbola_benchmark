@@ -74,9 +74,20 @@ def build_resize_config(
     image_size: Sequence[int] | None,
     resize_mode: str = "resize",
     pad_value: int = 0,
+    allow_upscale: bool = True,
 ) -> ResizeConfig | None:
-    """Build spatial preprocessing settings shared by all datasets/scripts."""
-    return ResizeConfig.from_settings(image_size, resize_mode=resize_mode, pad_value=pad_value)
+    """Build spatial preprocessing settings shared by all datasets/scripts.
+
+    ``allow_upscale`` is used only in ``letterbox`` mode. When it is false,
+    images smaller than ``image_size`` are centered on the padded canvas without
+    enlargement, while larger images are still downscaled to fit.
+    """
+    return ResizeConfig.from_settings(
+        image_size,
+        resize_mode=resize_mode,
+        pad_value=pad_value,
+        allow_upscale=allow_upscale,
+    )
 
 
 class RadargramSemanticDataset(Dataset):
