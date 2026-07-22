@@ -68,6 +68,8 @@ def main() -> None:
     processed_root = cfg["paths"]["processed_root"]
     splits_dir = cfg["paths"]["splits_dir"]
     image_size = cfg["input"].get("image_size")
+    resize_mode = cfg["input"].get("resize_mode", "resize")
+    pad_value = int(cfg["input"].get("pad_value", 0))
     grayscale = bool(cfg["input"].get("grayscale", False))
     batch_size = int(cfg["training"]["batch_size"])
     num_workers = int(cfg["training"].get("num_workers", 4))
@@ -104,6 +106,8 @@ def main() -> None:
             image_size=image_size,
             grayscale=grayscale,
             augmentation=train_augmentation,
+            resize_mode=resize_mode,
+            pad_value=pad_value,
         )
         val_ds = RadargramSemanticDataset(
             processed_root,
@@ -112,6 +116,8 @@ def main() -> None:
             image_size=image_size,
             grayscale=grayscale,
             augmentation=val_augmentation,
+            resize_mode=resize_mode,
+            pad_value=pad_value,
         )
         train_loader = _make_loader(
             train_ds,
@@ -139,6 +145,8 @@ def main() -> None:
             image_size=image_size,
             grayscale=grayscale,
             augmentation=train_augmentation,
+            resize_mode=resize_mode,
+            pad_value=pad_value,
         )
         val_ds = RadargramInstanceDataset(
             processed_root,
@@ -147,6 +155,8 @@ def main() -> None:
             image_size=image_size,
             grayscale=grayscale,
             augmentation=val_augmentation,
+            resize_mode=resize_mode,
+            pad_value=pad_value,
         )
         collate_fn = mask2former_collate if model_name == "mask2former" else detection_collate
         train_loader = _make_loader(

@@ -11,7 +11,12 @@ paths:
   output_dir: outputs/mask2former
 
 input:
+  # resize preserves compatibility with checkpoints trained using earlier
+  # project versions. Change to letterbox to preserve aspect ratio by
+  # padding instead of stretching.
   image_size: [512, 1024]
+  resize_mode: resize
+  pad_value: 0
   grayscale: false
 
 training:

@@ -59,6 +59,8 @@ def main() -> None:
         image_size=cfg["input"].get("image_size"),
         grayscale=bool(cfg["input"].get("grayscale", False)),
         augmentation=augmentation,
+        resize_mode=cfg["input"].get("resize_mode", "resize"),
+        pad_value=int(cfg["input"].get("pad_value", 0)),
     )
 
     output_dir = ensure_dir(args.output_dir)

@@ -160,6 +160,8 @@ def main() -> None:
     device = get_device()
 
     image_size = cfg["input"].get("image_size")
+    resize_mode = cfg["input"].get("resize_mode", "resize")
+    pad_value = int(cfg["input"].get("pad_value", 0))
     grayscale = bool(cfg["input"].get("grayscale", False))
     model_name = cfg["model"]["name"]
     task = cfg["model"]["task"]
@@ -204,7 +206,16 @@ def main() -> None:
 
     with torch.no_grad():
         for image_path in images:
-            image_tensor = load_raw_image_for_prediction(image_path, image_size=image_size, grayscale=grayscale).to(device)
+            loaded = load_raw_image_for_prediction(
+                image_path,
+                image_size=image_size,
+                grayscale=grayscale,
+                resize_mode=resize_mode,
+                pad_value=pad_value,
+                return_meta=True,
+            )
+            image_tensor, transform_meta = loaded
+            image_tensor = image_tensor.to(device)
 
             if task == "semantic":
                 instances = predict_semantic(model, image_tensor, threshold=threshold, min_area=min_area)
@@ -218,7 +229,7 @@ def main() -> None:
                 raise ValueError(f"Unsupported prediction combination: task={task}, model={model_name}")
 
             out_dir = args.output_root / image_path.stem
-            save_prediction_outputs(image_path, instances, out_dir)
+            save_prediction_outputs(image_path, instances, out_dir, transform_meta=transform_meta)
             print(f"Saved prediction for {image_path.name} -> {out_dir}")
 
 

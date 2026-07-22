@@ -13,11 +13,11 @@ from torch.utils.data import Dataset
 from radarseg.data.transforms import (
     AugmentationConfig,
     ResizeConfig,
+    SpatialTransformMeta,
     apply_paired_augmentation,
+    apply_spatial_preprocessing,
     image_to_tensor,
     mask_to_tensor,
-    resize_image,
-    resize_mask,
 )
 from radarseg.utils.io import read_split_file
 from radarseg.utils.masks import masks_to_boxes, read_binary_mask
@@ -51,7 +51,7 @@ def filter_manifest_by_split(df: pd.DataFrame, splits_dir: str | Path, split: st
     """Keep only the records belonging to one split."""
     split_path = Path(splits_dir) / f"{split}.txt"
     image_ids = set(read_split_file(split_path))
-    filtered = df[df["image_id"].isin(image_ids)].copy()
+    filtered = df[df["image_id"].astype(str).isin(image_ids)].copy()
     if filtered.empty:
         raise ValueError(f"Split '{split}' is empty or does not match manifest IDs: {split_path}")
     return filtered.reset_index(drop=True)
@@ -70,8 +70,21 @@ def row_to_record(row: pd.Series, processed_root: str | Path) -> SampleRecord:
     )
 
 
+def build_resize_config(
+    image_size: Sequence[int] | None,
+    resize_mode: str = "resize",
+    pad_value: int = 0,
+) -> ResizeConfig | None:
+    """Build spatial preprocessing settings shared by all datasets/scripts."""
+    return ResizeConfig.from_settings(image_size, resize_mode=resize_mode, pad_value=pad_value)
+
+
 class RadargramSemanticDataset(Dataset):
-    """Dataset for U-Net and SegFormer binary semantic segmentation.
+    """Dataset for binary semantic segmentation models.
+
+    Raw images may have different sizes. Each sample is transformed to the
+    fixed model input size using either direct resize or aspect-ratio-preserving
+    letterbox padding, as configured by ``input.resize_mode``.
 
     Augmentation is optional and should normally be enabled only for the train
     split. The same geometric transforms are applied to the image and semantic
@@ -86,10 +99,12 @@ class RadargramSemanticDataset(Dataset):
         image_size: Sequence[int] | None = None,
         grayscale: bool = False,
         augmentation: AugmentationConfig | None = None,
+        resize_mode: str = "resize",
+        pad_value: int = 0,
     ) -> None:
         self.processed_root = Path(processed_root)
         self.split = split
-        self.resize = ResizeConfig.from_sequence(image_size)
+        self.resize = build_resize_config(image_size, resize_mode=resize_mode, pad_value=pad_value)
         self.grayscale = grayscale
         self.augmentation = augmentation
         df = filter_manifest_by_split(load_manifest(self.processed_root), splits_dir, split)
@@ -103,24 +118,22 @@ class RadargramSemanticDataset(Dataset):
         image = Image.open(record.image_path).convert("L" if self.grayscale else "RGB")
         mask = Image.open(record.semantic_mask_path).convert("L")
 
-        # Resize before augmentation so all random geometric transforms operate
-        # on the actual model input size.
-        image = resize_image(image, self.resize)
-        mask = resize_mask(mask, self.resize)
-        image, masks = apply_paired_augmentation(image, [mask], self.augmentation)
-        mask = masks[0]
+        # Spatial preprocessing first: this gives every batch a fixed model
+        # input size. Augmentation then operates on the actual model canvas.
+        image, masks, _ = apply_spatial_preprocessing(image, [mask], self.resize)
+        image, masks = apply_paired_augmentation(image, masks, self.augmentation)
 
         image_tensor = image_to_tensor(image, grayscale=self.grayscale)
-        mask_tensor = mask_to_tensor(mask)
+        mask_tensor = mask_to_tensor(masks[0])
         return image_tensor, mask_tensor
 
 
 class RadargramInstanceDataset(Dataset):
-    """Dataset for Mask R-CNN and Mask2Former instance segmentation.
+    """Dataset for instance segmentation models.
 
     The raw annotation is one binary mask per hyperbola. Bounding boxes, areas,
-    and valid-object filtering are computed automatically from the masks after
-    resizing and augmentation.
+    and valid-object filtering are computed automatically from the transformed
+    masks. Therefore users never need to annotate bounding boxes manually.
     """
 
     def __init__(
@@ -131,10 +144,12 @@ class RadargramInstanceDataset(Dataset):
         image_size: Sequence[int] | None = None,
         grayscale: bool = False,
         augmentation: AugmentationConfig | None = None,
+        resize_mode: str = "resize",
+        pad_value: int = 0,
     ) -> None:
         self.processed_root = Path(processed_root)
         self.split = split
-        self.resize = ResizeConfig.from_sequence(image_size)
+        self.resize = build_resize_config(image_size, resize_mode=resize_mode, pad_value=pad_value)
         self.grayscale = grayscale
         self.augmentation = augmentation
         df = filter_manifest_by_split(load_manifest(self.processed_root), splits_dir, split)
@@ -144,19 +159,14 @@ class RadargramInstanceDataset(Dataset):
         return len(self.records)
 
     def _load_instance_masks(self, record: SampleRecord) -> list[Image.Image]:
-        mask_paths = sorted(record.instance_mask_dir.glob("*.png"))
-        masks: list[Image.Image] = []
-        for path in mask_paths:
-            mask = Image.open(path).convert("L")
-            masks.append(resize_mask(mask, self.resize))
-        return masks
+        return [Image.open(path).convert("L") for path in sorted(record.instance_mask_dir.glob("*.png"))]
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, dict[str, torch.Tensor | str]]:
         record = self.records[idx]
         image = Image.open(record.image_path).convert("L" if self.grayscale else "RGB")
-        image = resize_image(image, self.resize)
-
         mask_images = self._load_instance_masks(record)
+
+        image, mask_images, _ = apply_spatial_preprocessing(image, mask_images, self.resize)
         image, mask_images = apply_paired_augmentation(image, mask_images, self.augmentation)
         image_tensor = image_to_tensor(image, grayscale=self.grayscale)
 
@@ -164,7 +174,7 @@ class RadargramInstanceDataset(Dataset):
         for mask_img in mask_images:
             mask = np.asarray(mask_img.convert("L"), dtype=np.uint8)
             mask = (mask > 0).astype(np.uint8)
-            if mask.sum() > 0:
+            if int(mask.sum()) > 0:
                 mask_arrays.append(mask)
 
         if mask_arrays:
@@ -196,12 +206,27 @@ class RadargramInstanceDataset(Dataset):
         return image_tensor, target
 
 
-def load_raw_image_for_prediction(path: str | Path, image_size: Sequence[int] | None = None, grayscale: bool = False) -> torch.Tensor:
-    """Load a single image for inference. No augmentation is applied."""
-    resize = ResizeConfig.from_sequence(image_size)
+def load_raw_image_for_prediction(
+    path: str | Path,
+    image_size: Sequence[int] | None = None,
+    grayscale: bool = False,
+    resize_mode: str = "resize",
+    pad_value: int = 0,
+    return_meta: bool = False,
+) -> torch.Tensor | tuple[torch.Tensor, SpatialTransformMeta]:
+    """Load one image for inference.
+
+    When ``return_meta=True``, the spatial metadata can be passed to
+    ``save_prediction_outputs`` so masks and CSV coordinates are written in the
+    original image coordinate system.
+    """
+    resize = build_resize_config(image_size, resize_mode=resize_mode, pad_value=pad_value)
     image = Image.open(path).convert("L" if grayscale else "RGB")
-    image = resize_image(image, resize)
-    return image_to_tensor(image, grayscale=grayscale)
+    image, _, meta = apply_spatial_preprocessing(image, [], resize)
+    tensor = image_to_tensor(image, grayscale=grayscale)
+    if return_meta:
+        return tensor, meta
+    return tensor
 
 
 def read_instance_masks_from_record(record: SampleRecord) -> list[np.ndarray]:

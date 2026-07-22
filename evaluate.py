@@ -59,6 +59,8 @@ def main() -> None:
     processed_root = cfg["paths"]["processed_root"]
     splits_dir = cfg["paths"]["splits_dir"]
     image_size = cfg["input"].get("image_size")
+    resize_mode = cfg["input"].get("resize_mode", "resize")
+    pad_value = int(cfg["input"].get("pad_value", 0))
     grayscale = bool(cfg["input"].get("grayscale", False))
     batch_size = int(cfg["training"].get("batch_size", 1))
     num_workers = int(cfg["training"].get("num_workers", 4))
@@ -95,11 +97,27 @@ def main() -> None:
     load_checkpoint(args.checkpoint, model, map_location=device)
 
     if task == "semantic":
-        ds = RadargramSemanticDataset(processed_root, splits_dir, args.split, image_size=image_size, grayscale=grayscale)
+        ds = RadargramSemanticDataset(
+            processed_root,
+            splits_dir,
+            args.split,
+            image_size=image_size,
+            grayscale=grayscale,
+            resize_mode=resize_mode,
+            pad_value=pad_value,
+        )
         loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=semantic_collate)
         metrics = evaluate_semantic_model(model, loader, device, threshold=threshold, min_area=min_area, model_name=model_name)
     else:
-        ds = RadargramInstanceDataset(processed_root, splits_dir, args.split, image_size=image_size, grayscale=grayscale)
+        ds = RadargramInstanceDataset(
+            processed_root,
+            splits_dir,
+            args.split,
+            image_size=image_size,
+            grayscale=grayscale,
+            resize_mode=resize_mode,
+            pad_value=pad_value,
+        )
         collate_fn = mask2former_collate if model_name == "mask2former" else detection_collate
         loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_fn)
         metrics = evaluate_instance_model(model, loader, device, model_name=model_name, threshold=threshold, min_area=min_area)

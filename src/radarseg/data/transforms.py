@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Mapping, Sequence
 
 import cv2
@@ -9,25 +9,87 @@ import torch
 from PIL import Image
 
 
+VALID_RESIZE_MODES = {"resize", "letterbox"}
+
+
 @dataclass(frozen=True)
 class ResizeConfig:
-    """Target image size used by the model.
+    """Spatial preprocessing settings for model inputs.
 
-    The project uses the common segmentation convention [height, width] in YAML
-    files, while PIL expects (width, height). Keeping the conversion in one
-    place avoids shape mistakes.
+    The YAML convention in this project is ``image_size: [height, width]``.
+    PIL/OpenCV use ``(width, height)``, so all conversions are kept here to
+    avoid repeated shape logic throughout the codebase.
+
+    ``mode='resize'`` stretches every image/mask directly to ``image_size``.
+    ``mode='letterbox'`` preserves the original aspect ratio and pads the
+    remaining area to ``image_size``.
     """
 
     height: int
     width: int
+    mode: str = "resize"
+    pad_value: int = 0
 
     @classmethod
     def from_sequence(cls, value: Sequence[int] | None) -> "ResizeConfig | None":
+        """Backward-compatible constructor using direct resize."""
         if value is None:
             return None
         if len(value) != 2:
             raise ValueError(f"image_size must contain [height, width], got: {value}")
-        return cls(height=int(value[0]), width=int(value[1]))
+        return cls(height=int(value[0]), width=int(value[1]), mode="resize", pad_value=0)
+
+    @classmethod
+    def from_settings(
+        cls,
+        image_size: Sequence[int] | None,
+        resize_mode: str = "resize",
+        pad_value: int = 0,
+    ) -> "ResizeConfig | None":
+        """Create preprocessing settings from config values."""
+        if image_size is None:
+            return None
+        if len(image_size) != 2:
+            raise ValueError(f"image_size must contain [height, width], got: {image_size}")
+        cfg = cls(height=int(image_size[0]), width=int(image_size[1]), mode=str(resize_mode), pad_value=int(pad_value))
+        cfg.validate()
+        return cfg
+
+    def validate(self) -> None:
+        if self.height <= 0 or self.width <= 0:
+            raise ValueError(f"image_size values must be positive, got: [{self.height}, {self.width}]")
+        if self.mode not in VALID_RESIZE_MODES:
+            raise ValueError(f"resize_mode must be one of {sorted(VALID_RESIZE_MODES)}, got: {self.mode!r}")
+        if not 0 <= int(self.pad_value) <= 255:
+            raise ValueError(f"pad_value must be in [0, 255], got: {self.pad_value}")
+
+
+@dataclass(frozen=True)
+class SpatialTransformMeta:
+    """Metadata needed to map model-space masks back to the original image.
+
+    Coordinates produced by neural networks are in the preprocessed model-input
+    system. This metadata records exactly how the original image was resized or
+    letterboxed so predicted masks can be mapped back to the original pixel
+    coordinate system before saving CSV files.
+    """
+
+    resize_mode: str
+    original_height: int
+    original_width: int
+    processed_height: int
+    processed_width: int
+    resized_height: int
+    resized_width: int
+    pad_top: int = 0
+    pad_left: int = 0
+    pad_bottom: int = 0
+    pad_right: int = 0
+    scale_x: float = 1.0
+    scale_y: float = 1.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -80,7 +142,7 @@ class AugmentationConfig:
                 raise ValueError(f"augmentation.{name} lower value must be <= upper value, got: {value}")
             return lo, hi
 
-        return cls(
+        config = cls(
             enabled=bool(cfg.get("enabled", False)),
             horizontal_flip_p=float(cfg.get("horizontal_flip_p", 0.0)),
             shift_scale_p=float(cfg.get("shift_scale_p", 0.0)),
@@ -96,6 +158,8 @@ class AugmentationConfig:
             gaussian_blur_p=float(cfg.get("gaussian_blur_p", 0.0)),
             blur_kernel_size=int(cfg.get("blur_kernel_size", 3)),
         )
+        config.validate()
+        return config
 
     def validate(self) -> None:
         """Validate probabilities and limits early so errors are easy to trace."""
@@ -119,15 +183,106 @@ class AugmentationConfig:
 
 
 def resize_image(image: Image.Image, resize: ResizeConfig | None) -> Image.Image:
+    """Backward-compatible direct resizing helper."""
     if resize is None:
         return image
     return image.resize((resize.width, resize.height), resample=Image.BILINEAR)
 
 
 def resize_mask(mask: Image.Image, resize: ResizeConfig | None) -> Image.Image:
+    """Backward-compatible direct mask resizing helper."""
     if resize is None:
         return mask
     return mask.resize((resize.width, resize.height), resample=Image.NEAREST)
+
+
+def apply_spatial_preprocessing(
+    image: Image.Image,
+    masks: list[Image.Image] | None,
+    resize: ResizeConfig | None,
+) -> tuple[Image.Image, list[Image.Image], SpatialTransformMeta]:
+    """Resize or letterbox an image and matching masks.
+
+    The returned metadata is the single source of truth for converting
+    predictions from model-input coordinates back to original-image coordinates.
+    """
+    masks = [] if masks is None else masks
+    original_width, original_height = image.size
+
+    if resize is None:
+        meta = SpatialTransformMeta(
+            resize_mode="none",
+            original_height=original_height,
+            original_width=original_width,
+            processed_height=original_height,
+            processed_width=original_width,
+            resized_height=original_height,
+            resized_width=original_width,
+        )
+        return image, masks, meta
+
+    resize.validate()
+    if resize.mode == "resize":
+        out_image = image.resize((resize.width, resize.height), resample=Image.BILINEAR)
+        out_masks = [mask.resize((resize.width, resize.height), resample=Image.NEAREST) for mask in masks]
+        meta = SpatialTransformMeta(
+            resize_mode="resize",
+            original_height=original_height,
+            original_width=original_width,
+            processed_height=resize.height,
+            processed_width=resize.width,
+            resized_height=resize.height,
+            resized_width=resize.width,
+            scale_x=resize.width / max(original_width, 1),
+            scale_y=resize.height / max(original_height, 1),
+        )
+        return out_image, out_masks, meta
+
+    # Letterbox: preserve aspect ratio and pad to the requested model size.
+    scale = min(resize.width / max(original_width, 1), resize.height / max(original_height, 1))
+    resized_width = max(1, min(resize.width, int(round(original_width * scale))))
+    resized_height = max(1, min(resize.height, int(round(original_height * scale))))
+    pad_left = (resize.width - resized_width) // 2
+    pad_top = (resize.height - resized_height) // 2
+    pad_right = resize.width - resized_width - pad_left
+    pad_bottom = resize.height - resized_height - pad_top
+
+    resized_image = image.resize((resized_width, resized_height), resample=Image.BILINEAR)
+    padded_image = _new_padded_image(image.mode, resize.width, resize.height, resize.pad_value)
+    padded_image.paste(resized_image, (pad_left, pad_top))
+
+    out_masks: list[Image.Image] = []
+    for mask in masks:
+        resized_mask = mask.resize((resized_width, resized_height), resample=Image.NEAREST)
+        padded_mask = Image.new("L", (resize.width, resize.height), color=0)
+        padded_mask.paste(resized_mask, (pad_left, pad_top))
+        out_masks.append(padded_mask)
+
+    meta = SpatialTransformMeta(
+        resize_mode="letterbox",
+        original_height=original_height,
+        original_width=original_width,
+        processed_height=resize.height,
+        processed_width=resize.width,
+        resized_height=resized_height,
+        resized_width=resized_width,
+        pad_top=pad_top,
+        pad_left=pad_left,
+        pad_bottom=pad_bottom,
+        pad_right=pad_right,
+        scale_x=resized_width / max(original_width, 1),
+        scale_y=resized_height / max(original_height, 1),
+    )
+    return padded_image, out_masks, meta
+
+
+def _new_padded_image(mode: str, width: int, height: int, pad_value: int) -> Image.Image:
+    if mode == "L":
+        return Image.new("L", (width, height), color=int(pad_value))
+    # Normalize less common modes to RGB before padding. The dataset loaders call
+    # convert("RGB") or convert("L") before this function, so this mainly guards
+    # against direct utility use.
+    return Image.new("RGB", (width, height), color=(int(pad_value), int(pad_value), int(pad_value)))
 
 
 def image_to_tensor(image: Image.Image, grayscale: bool = False) -> torch.Tensor:
@@ -171,7 +326,7 @@ def apply_paired_augmentation(
     Parameters
     ----------
     image:
-        Radargram image after optional resizing.
+        Radargram image after spatial preprocessing.
     masks:
         Semantic mask plus/or instance masks. All masks must match image size.
     cfg:
@@ -263,6 +418,100 @@ def apply_paired_augmentation(
 
     out_masks = [Image.fromarray((mask > 0).astype(np.uint8) * 255, mode="L") for mask in mask_arrays]
     return out_image, out_masks
+
+
+def map_mask_to_original(mask: np.ndarray, meta: SpatialTransformMeta | None) -> np.ndarray:
+    """Map one model-space binary mask back to the original image shape."""
+    mask = (np.asarray(mask) > 0).astype(np.uint8)
+    if meta is None:
+        return mask
+
+    expected_shape = (meta.processed_height, meta.processed_width)
+    if mask.shape != expected_shape:
+        # Some external libraries may already return original-size masks. If so,
+        # keep them unchanged; otherwise resize to the processed canvas before
+        # applying the inverse transform.
+        original_shape = (meta.original_height, meta.original_width)
+        if mask.shape == original_shape:
+            return mask
+        mask = cv2.resize(mask, dsize=(meta.processed_width, meta.processed_height), interpolation=cv2.INTER_NEAREST)
+
+    if meta.resize_mode == "none":
+        return mask
+
+    if meta.resize_mode == "resize":
+        out = cv2.resize(mask, dsize=(meta.original_width, meta.original_height), interpolation=cv2.INTER_NEAREST)
+        return (out > 0).astype(np.uint8)
+
+    if meta.resize_mode == "letterbox":
+        y0 = int(meta.pad_top)
+        y1 = int(meta.pad_top + meta.resized_height)
+        x0 = int(meta.pad_left)
+        x1 = int(meta.pad_left + meta.resized_width)
+        cropped = mask[y0:y1, x0:x1]
+        if cropped.size == 0:
+            return np.zeros((meta.original_height, meta.original_width), dtype=np.uint8)
+        out = cv2.resize(cropped, dsize=(meta.original_width, meta.original_height), interpolation=cv2.INTER_NEAREST)
+        return (out > 0).astype(np.uint8)
+
+    raise ValueError(f"Unsupported resize mode in transform metadata: {meta.resize_mode!r}")
+
+
+def map_box_to_original(box: Sequence[float], meta: SpatialTransformMeta | None) -> list[float]:
+    """Map one [x_min, y_min, x_max, y_max] box to original image coordinates."""
+    x0, y0, x1, y1 = [float(v) for v in box]
+    if meta is None or meta.resize_mode == "none":
+        return _clip_box([x0, y0, x1, y1], meta)
+
+    if meta.resize_mode == "resize":
+        sx = meta.scale_x if meta.scale_x != 0 else 1.0
+        sy = meta.scale_y if meta.scale_y != 0 else 1.0
+        mapped = [x0 / sx, y0 / sy, x1 / sx, y1 / sy]
+        return _clip_box(mapped, meta)
+
+    if meta.resize_mode == "letterbox":
+        sx = meta.scale_x if meta.scale_x != 0 else 1.0
+        sy = meta.scale_y if meta.scale_y != 0 else 1.0
+        mapped = [(x0 - meta.pad_left) / sx, (y0 - meta.pad_top) / sy, (x1 - meta.pad_left) / sx, (y1 - meta.pad_top) / sy]
+        return _clip_box(mapped, meta)
+
+    raise ValueError(f"Unsupported resize mode in transform metadata: {meta.resize_mode!r}")
+
+
+def map_instances_to_original(instances: list[dict[str, Any]], meta: SpatialTransformMeta | None) -> list[dict[str, Any]]:
+    """Convert instance masks, boxes, and areas to the original image system."""
+    if meta is None:
+        return instances
+
+    mapped_instances: list[dict[str, Any]] = []
+    for item in instances:
+        if "mask" not in item:
+            continue
+        mapped_mask = map_mask_to_original(item["mask"], meta)
+        mapped = dict(item)
+        mapped["mask"] = mapped_mask
+        mapped["area"] = int(mapped_mask.sum())
+        mapped["bbox"] = _mask_to_box(mapped_mask)
+        mapped_instances.append(mapped)
+    return mapped_instances
+
+
+def _mask_to_box(mask: np.ndarray) -> list[float]:
+    ys, xs = np.where(mask > 0)
+    if xs.size == 0 or ys.size == 0:
+        return [0.0, 0.0, 0.0, 0.0]
+    return [float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())]
+
+
+def _clip_box(box: Sequence[float], meta: SpatialTransformMeta | None) -> list[float]:
+    x0, y0, x1, y1 = [float(v) for v in box]
+    if meta is None:
+        return [x0, y0, x1, y1]
+    x0 = min(max(x0, 0.0), max(float(meta.original_width - 1), 0.0))
+    x1 = min(max(x1, 0.0), max(float(meta.original_width - 1), 0.0))
+    y0 = min(max(y0, 0.0), max(float(meta.original_height - 1), 0.0))
+    y1 = min(max(y1, 0.0), max(float(meta.original_height - 1), 0.0))
+    return [x0, y0, x1, y1]
 
 
 def _odd_kernel_size(value: int) -> int:

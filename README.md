@@ -144,6 +144,46 @@ python scripts/create_splits.py \
   --seed 42
 ```
 
+
+## Input resizing, letterboxing, and coordinates
+
+All PyTorch-based models still receive a fixed tensor size from each config:
+
+```yaml
+input:
+  image_size: [512, 1024]   # [height, width]
+  resize_mode: resize       # resize or letterbox
+  pad_value: 0
+  grayscale: false
+```
+
+Use `resize_mode: resize` when you want the old behavior: each image and mask is directly stretched to `image_size`. This preserves compatibility with checkpoints already trained using earlier project versions.
+
+Use `resize_mode: letterbox` when your raw radargrams have different aspect ratios and you want to preserve the original hyperbola geometry. In this mode, the image and all masks are scaled with the same factor and padded to the requested model size. Mask padding is always background; image padding uses `pad_value`.
+
+Example:
+
+```yaml
+input:
+  image_size: [512, 1024]
+  resize_mode: letterbox
+  pad_value: 0
+  grayscale: false
+```
+
+During prediction, the project records the spatial preprocessing metadata and maps predicted masks back to the original image size before saving. Therefore:
+
+```text
+objects/object_001_pred.png
+coordinates/object_001_pixels.csv
+mask_all_pred.png
+overlay.png
+```
+
+are saved in the **original radargram coordinate system**, not the resized or padded model-input coordinate system. The file `prediction.json` includes `original_image_size`, `saved_mask_size`, `coordinate_system`, and the preprocessing metadata used for the inverse mapping.
+
+YOLO11-seg uses Ultralytics' own resizing/letterboxing internally and already returns masks in the original image size. SAM 2 prompted utilities also operate on the original image size.
+
 ## Step 4: Train models
 
 Semantic models:
@@ -272,6 +312,7 @@ python predict.py \
   --split val
 ```
 
+
 `--input-root dataset/processed/images` contains all processed images. Add `--split train`, `--split val`, or `--split test` to predict only the image IDs listed in the corresponding split file. Without `--split`, `predict.py` intentionally predicts every image under `--input-root`.
 
 For Mask R-CNN, `evaluate.py` and `predict.py` automatically disable COCO-pretrained weight loading before loading your supplied `--checkpoint`. This prevents unnecessary internet downloads during evaluation and prediction.
@@ -311,6 +352,8 @@ outputs/predictions/MODEL_NAME/sim_0001/
     object_002_pixels.csv
   prediction.json
 ```
+
+For the PyTorch-based models, these saved masks and CSV files are mapped back to the original radargram size using the spatial metadata from preprocessing. This is true for both `resize_mode: resize` and `resize_mode: letterbox`.
 
 ## Model notes
 
