@@ -325,7 +325,7 @@ YOLO11-seg prediction uses the same command style:
 ```bash
 python predict.py \
   --config configs/yolo11_seg.yaml \
-  --checkpoint outputs/yolo11_seg/weights/best.pt \
+  --checkpoint runs/segment/train/weights/best.pt \
   --input-root dataset/processed/images \
   --output-root outputs/predictions/yolo11_seg \
   --split test \
